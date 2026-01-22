@@ -1,4 +1,4 @@
-# Assignments (optional)
+# Assignments 
 
 Add prompts here for:
 - Midterm Progress Report (Aim 1)
