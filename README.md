@@ -100,7 +100,7 @@ python src/02_rank_genes_aim1_wt_sleepdep.py \
   --outdir results
 ```
 
-### 4) Aim 2: Shank3 vs WT within HC5 (required)
+### 4) Aim 2: Shank3 vs WT within HC5
 If your downloaded counts include genotype labels, run:
 ```bash
 python src/03_rank_genes_aim2_genotype.py \
@@ -125,7 +125,7 @@ python src/03_rank_genes_aim2_genotype.py \
 ---
 
 ## Notes on AI tools
-Students may use AI tools to help **debug code**, but there is **no AI log requirement**.  
+Students may use AI tools to help **debug code**.  
 Students remain responsible for understanding and explaining their final code and results.
 
 ---
