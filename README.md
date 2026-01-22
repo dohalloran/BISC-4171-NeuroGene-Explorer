@@ -26,7 +26,7 @@ Primary dataset: **NCBI GEO GSE113754** (mouse prefrontal cortex RNA-seq; sleep 
 ## Repository layout
 - `src/` — analysis scripts (Python)
 - `docs/` — PDFs for students (syllabus, project packet, rubric, etc.)
-- `assignments/` — prompts for midterm/final reports (optional)
+- `assignments/` — prompts for midterm/final reports 
 - `data/` — **not tracked** (raw downloads live here)
 - `results/` — **not tracked** (generated outputs live here)
 
