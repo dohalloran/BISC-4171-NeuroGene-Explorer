@@ -3,7 +3,7 @@
 An undergraduate research project introducing **Python + bioinformatics** through a **neural gene-expression** dataset.
 
 > Course repo: https://github.com/dohalloran/BISC-4171-NeuroGene-Explorer  
-> (Students should **download the ZIP** rather than using Git.)
+> (Students can **download the ZIP** rather than using Git.)
 
 ---
 
