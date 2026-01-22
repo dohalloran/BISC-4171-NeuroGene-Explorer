@@ -1,6 +1,6 @@
-# BISC 4171 — NeuroGene Explorer (Asynchronous)
+# BISC 4171 — NeuroGene Explorer 
 
-A lightweight, semester-long undergraduate research project introducing **Python + bioinformatics** through a **neural gene-expression** dataset.
+An undergraduate research project introducing **Python + bioinformatics** through a **neural gene-expression** dataset.
 
 ## Course structure (1 credit)
 - **No scheduled meeting time** (asynchronous / independent research)
