@@ -1,0 +1,11 @@
+name: bisc4171-neurogene
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pandas
+  - matplotlib
+  - scipy
+  - statsmodels
