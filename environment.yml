@@ -2,9 +2,11 @@ name: bisc4171-neurogene
 channels:
   - conda-forge
 dependencies:
-  - python=3.11
+  # 3.10 tends to be the smoothest across macOS Intel/Apple Silicon + older Conda installs
+  - python=3.10
   - pip
-  - numpy
+  # Pin numpy <2 for widest compatibility with scientific stack on older Conda/OS combos
+  - numpy<2
   - pandas
   - matplotlib
   - scipy
