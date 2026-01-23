@@ -31,7 +31,7 @@ Mouse prefrontal cortex RNA-seq; sleep deprivation vs homecage; WT and Shank3 mu
 ## Repository layout
 - `src/` — analysis scripts (Python)
 - `docs/` — course PDFs (syllabus, project packet, rubric, etc.)
-- `assignments/` — prompts for midterm/final reports (optional)
+- `assignments/` — prompts for midterm/final reports
 - `data/` — **not tracked** (raw downloads live here)
 - `results/` — **not tracked** (generated outputs live here)
 
