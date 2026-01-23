@@ -11,18 +11,22 @@ Beginner-friendly workflow:
 - Benjamini-Hochberg FDR correction
 - Volcano plot + ranked table
 
+Why your volcano might look "flat":
+Sometimes one gene gets an extremely tiny p-value (underflow to ~0), which makes
+-log10(p) ~ 300 and squashes everything else. This script optionally clips the
+y-axis so the plot is readable.
+
 Usage:
   python src/02_rank_genes_aim1_wt_sleepdep.py \
     --counts data/<COUNTS_FILE>.txt.gz \
     --metadata results/metadata.csv \
-    --outdir results
+    --outdir results \
+    --ymax 10 \
+    --volcano_metric pvalue
 
 Outputs:
 - results/aim1_ranked_genes.csv
 - results/aim1_volcano.png
-
-Note:
-This is a simplified learning workflow (not a full DESeq2/edgeR pipeline).
 """
 
 from __future__ import annotations
@@ -75,14 +79,6 @@ def load_counts_and_metadata(
             "If your counts file has fewer non-sample columns, lower --n_prefix_cols."
         )
 
-    # guard against duplicate column names after cleaning
-    if pd.Index(raw.columns).duplicated().any():
-        dups = pd.Index(raw.columns)[pd.Index(raw.columns).duplicated()].tolist()
-        raise ValueError(
-            "Counts file has duplicate column names after cleaning. "
-            f"Duplicates: {dups[:10]} (showing up to 10)."
-        )
-
     gene_col = raw.columns[0]
     raw[gene_col] = raw[gene_col].astype(str).map(clean_name)
 
@@ -98,7 +94,7 @@ def load_counts_and_metadata(
     if prefix_cols_wo_gene:
         prefix = raw[prefix_cols_wo_gene].copy()
 
-    # counts matrix: sample columns only
+    # counts matrix: sample columns only (drop prefix like Length)
     counts = raw.drop(columns=prefix_cols_wo_gene, errors="ignore").copy()
 
     # force numeric (coerce errors -> NaN), then fill NaN with 0 for counts
@@ -140,6 +136,46 @@ def load_counts_and_metadata(
     return counts_aligned, meta_aligned, prefix
 
 
+def volcano_plot(
+    res: pd.DataFrame,
+    x_col: str,
+    metric: str,
+    out_png: Path,
+    title: str,
+    xlabel: str,
+    *,
+    ymax: float = 10.0,
+) -> None:
+    """Readable volcano: clip extreme -log10 values so the cloud isn't squashed."""
+    x = res[x_col].astype(float).values
+    p = res[metric].astype(float).clip(lower=1e-300, upper=1.0).values
+    y_raw = -np.log10(p)
+    y = np.minimum(y_raw, ymax)
+    over = y_raw > ymax
+
+    plt.figure()
+    plt.scatter(x[~over], y[~over], s=4, alpha=0.6)
+    if over.any():
+        plt.scatter(x[over], np.full(over.sum(), ymax), s=10, marker="^", alpha=0.9)
+        plt.text(
+            0.99, 0.02,
+            f"{over.sum()} genes clipped at y={ymax}",
+            transform=plt.gca().transAxes,
+            ha="right", va="bottom", fontsize=8,
+        )
+
+    plt.axvline(0, linewidth=1)
+    plt.axhline(-np.log10(0.05), linewidth=1)
+
+    plt.xlabel(xlabel)
+    plt.ylabel(f"-log10({metric})")
+    plt.title(title)
+    plt.ylim(0, ymax * 1.05)
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=200)
+    plt.close()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--counts", required=True, help="Path to counts table (tsv or tsv.gz)")
@@ -158,10 +194,16 @@ def main() -> None:
         help="Number of non-sample leading columns in counts file (default: 2; e.g., GeneID, Length)",
     )
     ap.add_argument(
-        "--min_p",
+        "--volcano_metric",
+        choices=["pvalue", "fdr"],
+        default="pvalue",
+        help="Volcano y-axis metric (default: pvalue). Try 'fdr' for adjusted significance.",
+    )
+    ap.add_argument(
+        "--ymax",
         type=float,
-        default=1e-300,
-        help="Floor for p-values (avoids p=0 causing infinite -log10(p)) (default: 1e-300)",
+        default=10.0,
+        help="Max y-axis for volcano plot (clips extreme points). Default: 10",
     )
     args = ap.parse_args()
 
@@ -178,8 +220,6 @@ def main() -> None:
     # Aim 1: WT only (if genotype labels are present and WT exists)
     if "genotype" in meta.columns and (meta["genotype"].astype(str).str.upper() == "WT").any():
         meta = meta[meta["genotype"].astype(str).str.upper() == "WT"].copy()
-        # keep counts to just the remaining samples (cleaner + faster)
-        counts = counts[meta["sample"].tolist()].copy()
 
     if "condition" not in meta.columns:
         raise ValueError("Metadata is missing required column: 'condition'")
@@ -193,6 +233,12 @@ def main() -> None:
             "Check results/metadata.csv condition labels (expected SD5 and HC5)."
         )
 
+    # Ensure both groups exist in counts (after cleaning + alignment)
+    sd = [s for s in sd if s in counts.columns]
+    hc = [s for s in hc if s in counts.columns]
+    if len(sd) == 0 or len(hc) == 0:
+        raise ValueError("After alignment, SD5/HC5 samples are not present in counts columns.")
+
     # Optional gene filter
     if args.min_total_counts > 0:
         counts = counts.loc[counts.sum(axis=1) >= args.min_total_counts]
@@ -204,18 +250,12 @@ def main() -> None:
     # Welch's t-test per gene
     pvals = []
     for gene_id in logc.index:
-        a = logc.loc[gene_id, sd].to_numpy(dtype=float)
-        b = logc.loc[gene_id, hc].to_numpy(dtype=float)
-
-        # If both groups have ~zero variance, t-test can underflow or warn; keep it stable.
-        if np.nanstd(a) == 0.0 and np.nanstd(b) == 0.0:
-            # If means are identical, no difference; otherwise, treat as extremely small p.
-            p = 1.0 if np.nanmean(a) == np.nanmean(b) else args.min_p
-        else:
-            p = float(ttest_ind(a, b, equal_var=False, nan_policy="omit").pvalue)
-            if (not np.isfinite(p)) or (p < args.min_p):
-                p = args.min_p
-
+        p = ttest_ind(
+            logc.loc[gene_id, sd],
+            logc.loc[gene_id, hc],
+            equal_var=False,
+            nan_policy="omit",
+        ).pvalue
         pvals.append(p)
 
     res = pd.DataFrame(
@@ -226,8 +266,8 @@ def main() -> None:
         index=logc.index,
     )
 
-    # BH FDR (clip p-values away from 0 for numerical stability)
-    res["pvalue"] = res["pvalue"].clip(lower=args.min_p, upper=1.0)
+    # BH FDR
+    res["pvalue"] = res["pvalue"].astype(float).clip(lower=1e-300, upper=1.0)
     res["fdr"] = multipletests(res["pvalue"].fillna(1.0), method="fdr_bh")[1]
     res = res.sort_values(["fdr", "pvalue"])
 
@@ -235,17 +275,17 @@ def main() -> None:
     res.to_csv(out_csv)
     print("Wrote:", out_csv)
 
-    # Volcano plot
-    plt.figure()
-    x = res["log2FC_SD5_minus_HC5"].values
-    y = -np.log10(res["pvalue"].astype(float).values)
-    plt.scatter(x, y, s=4)
-    plt.xlabel("log2FC (SD5 - HC5)")
-    plt.ylabel("-log10(p-value)")
-    plt.title("Aim 1: WT sleep deprivation (SD5 vs HC5)")
-    plt.tight_layout()
+    # Volcano plot (readable)
     out_png = outdir / "aim1_volcano.png"
-    plt.savefig(out_png, dpi=200)
+    volcano_plot(
+        res,
+        x_col="log2FC_SD5_minus_HC5",
+        metric=args.volcano_metric,
+        out_png=out_png,
+        title="Aim 1: WT sleep deprivation (SD5 vs HC5)",
+        xlabel="log2FC (SD5 - HC5)",
+        ymax=args.ymax,
+    )
     print("Wrote:", out_png)
 
     print("\nTop 10 genes by FDR:")
