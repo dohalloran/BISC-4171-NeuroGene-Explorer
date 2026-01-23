@@ -97,7 +97,10 @@ python src/01_qc_and_metadata.py --counts data/<COUNTS_FILE>.txt.gz --outdir res
 python src/02_rank_genes_aim1_wt_sleepdep.py \
   --counts data/<COUNTS_FILE>.txt.gz \
   --metadata results/metadata.csv \
-  --outdir results
+  --outdir results \
+  --ymax 10 \
+  --volcano_metric fdr \
+  --min_total_counts 25
 ```
 
 ### 4) Aim 2: Shank3 vs WT within HC5
