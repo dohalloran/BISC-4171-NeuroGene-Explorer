@@ -95,12 +95,11 @@ python src/01_qc_and_metadata.py --counts data/<COUNTS_FILE>.txt.gz --outdir res
 ### 3) Aim 1: WT SD5 vs WT HC5
 ```bash
 python src/02_rank_genes_aim1_wt_sleepdep.py \
-  --counts data/<COUNTS_FILE>.txt.gz \
+  --counts data/GSE113754_RNASeq_S3_WT_SD5_HC5_Counts.txt.gz \
   --metadata results/metadata.csv \
   --outdir results \
-  --ymax 10 \
-  --volcano_metric fdr \
-  --min_total_counts 25
+  --volcano_metric pvalue \
+  --ymax 8
 ```
 
 ### 4) Aim 2: Shank3 vs WT within HC5
