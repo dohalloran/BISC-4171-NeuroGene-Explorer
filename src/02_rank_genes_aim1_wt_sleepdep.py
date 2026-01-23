@@ -75,17 +75,19 @@ def load_counts_and_metadata(
             "If your counts file has fewer non-sample columns, lower --n_prefix_cols."
         )
 
+    # guard against duplicate column names after cleaning
+    if pd.Index(raw.columns).duplicated().any():
+        dups = pd.Index(raw.columns)[pd.Index(raw.columns).duplicated()].tolist()
+        raise ValueError(
+            "Counts file has duplicate column names after cleaning. "
+            f"Duplicates: {dups[:10]} (showing up to 10)."
+        )
+
     gene_col = raw.columns[0]
     raw[gene_col] = raw[gene_col].astype(str).map(clean_name)
 
     # split prefix vs samples
     prefix_cols = list(raw.columns[:n_prefix_cols])
-    sample_cols = list(raw.columns[n_prefix_cols:])
-    sample_cols_cleaned = [clean_name(c) for c in sample_cols]
-
-    # apply cleaned names to sample columns
-    rename_map = {old: new for old, new in zip(sample_cols, sample_cols_cleaned)}
-    raw = raw.rename(columns=rename_map)
 
     # set gene id as index
     raw = raw.set_index(gene_col)
@@ -97,7 +99,7 @@ def load_counts_and_metadata(
         prefix = raw[prefix_cols_wo_gene].copy()
 
     # counts matrix: sample columns only
-    counts = raw[[c for c in raw.columns if c not in prefix_cols_wo_gene]].copy()
+    counts = raw.drop(columns=prefix_cols_wo_gene, errors="ignore").copy()
 
     # force numeric (coerce errors -> NaN), then fill NaN with 0 for counts
     counts = counts.apply(pd.to_numeric, errors="coerce").fillna(0.0)
@@ -155,6 +157,12 @@ def main() -> None:
         default=2,
         help="Number of non-sample leading columns in counts file (default: 2; e.g., GeneID, Length)",
     )
+    ap.add_argument(
+        "--min_p",
+        type=float,
+        default=1e-300,
+        help="Floor for p-values (avoids p=0 causing infinite -log10(p)) (default: 1e-300)",
+    )
     args = ap.parse_args()
 
     outdir = Path(args.outdir)
@@ -170,6 +178,8 @@ def main() -> None:
     # Aim 1: WT only (if genotype labels are present and WT exists)
     if "genotype" in meta.columns and (meta["genotype"].astype(str).str.upper() == "WT").any():
         meta = meta[meta["genotype"].astype(str).str.upper() == "WT"].copy()
+        # keep counts to just the remaining samples (cleaner + faster)
+        counts = counts[meta["sample"].tolist()].copy()
 
     if "condition" not in meta.columns:
         raise ValueError("Metadata is missing required column: 'condition'")
@@ -183,13 +193,6 @@ def main() -> None:
             "Check results/metadata.csv condition labels (expected SD5 and HC5)."
         )
 
-    # Ensure both groups exist in counts (after cleaning + alignment)
-    sd = [s for s in sd if s in counts.columns]
-    hc = [s for s in hc if s in counts.columns]
-
-    if len(sd) == 0 or len(hc) == 0:
-        raise ValueError("After alignment, SD5/HC5 samples are not present in counts columns.")
-
     # Optional gene filter
     if args.min_total_counts > 0:
         counts = counts.loc[counts.sum(axis=1) >= args.min_total_counts]
@@ -201,12 +204,18 @@ def main() -> None:
     # Welch's t-test per gene
     pvals = []
     for gene_id in logc.index:
-        p = ttest_ind(
-            logc.loc[gene_id, sd],
-            logc.loc[gene_id, hc],
-            equal_var=False,
-            nan_policy="omit",
-        ).pvalue
+        a = logc.loc[gene_id, sd].to_numpy(dtype=float)
+        b = logc.loc[gene_id, hc].to_numpy(dtype=float)
+
+        # If both groups have ~zero variance, t-test can underflow or warn; keep it stable.
+        if np.nanstd(a) == 0.0 and np.nanstd(b) == 0.0:
+            # If means are identical, no difference; otherwise, treat as extremely small p.
+            p = 1.0 if np.nanmean(a) == np.nanmean(b) else args.min_p
+        else:
+            p = float(ttest_ind(a, b, equal_var=False, nan_policy="omit").pvalue)
+            if (not np.isfinite(p)) or (p < args.min_p):
+                p = args.min_p
+
         pvals.append(p)
 
     res = pd.DataFrame(
@@ -217,7 +226,8 @@ def main() -> None:
         index=logc.index,
     )
 
-    # BH FDR
+    # BH FDR (clip p-values away from 0 for numerical stability)
+    res["pvalue"] = res["pvalue"].clip(lower=args.min_p, upper=1.0)
     res["fdr"] = multipletests(res["pvalue"].fillna(1.0), method="fdr_bh")[1]
     res = res.sort_values(["fdr", "pvalue"])
 
@@ -228,7 +238,7 @@ def main() -> None:
     # Volcano plot
     plt.figure()
     x = res["log2FC_SD5_minus_HC5"].values
-    y = -np.log10(np.clip(res["pvalue"].astype(float).values, 1e-300, 1.0))
+    y = -np.log10(res["pvalue"].astype(float).values)
     plt.scatter(x, y, s=4)
     plt.xlabel("log2FC (SD5 - HC5)")
     plt.ylabel("-log10(p-value)")
