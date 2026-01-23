@@ -20,6 +20,7 @@ You may need to adjust infer_condition() / infer_genotype() after inspecting sam
 from __future__ import annotations
 import argparse
 from pathlib import Path
+import re
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -39,7 +40,8 @@ def infer_condition(sample_name: str) -> str:
 def infer_genotype(sample_name: str) -> str:
     s = sample_name.lower()
     # Flexible rules—adjust once you inspect actual sample names.
-    if "shank3" in s or "mut" in s or "ko" in s or "delta" in s:
+    # In this GEO series, mutant samples are labeled with an 'S3' prefix (e.g., S3HC5_1)
+    if s.startswith("s3") or "s3" in s or "shank3" in s or "mut" in s or "ko" in s or "delta" in s:
         return "Shank3"
     if "wt" in s:
         return "WT"
@@ -56,8 +58,17 @@ def main() -> None:
     outdir.mkdir(parents=True, exist_ok=True)
 
     df = pd.read_csv(counts_path, sep="\t", comment="#")
+    # Clean up column names (GEO count tables sometimes include trailing spaces)
+    df.columns = [str(c).strip() for c in df.columns]
     gene_col = df.columns[0]
     counts = df.set_index(gene_col)
+
+    # Keep only true sample columns (e.g., ..._1, ..._2, ..._3); drop annotation columns like "Length"
+    sample_cols = [c for c in counts.columns if re.search(r"_\d+$", str(c))]
+    dropped = [c for c in counts.columns if c not in sample_cols]
+    if dropped:
+        print(f"NOTE: dropping non-sample column(s): {', '.join(map(str, dropped))}")
+    counts = counts[sample_cols]
 
     samples = list(counts.columns)
     meta = pd.DataFrame({"sample": samples})
