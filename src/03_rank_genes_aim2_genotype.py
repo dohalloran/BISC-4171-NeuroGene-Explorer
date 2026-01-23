@@ -35,7 +35,15 @@ from scipy.stats import ttest_ind
 from statsmodels.stats.multitest import multipletests
 
 def load_counts(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(path, sep="\t", comment="#")
+    df = pd.read_csv(path, sep="	", compression="infer")
+    # Normalize column names (the GEO file has trailing spaces in some sample IDs)
+    df.columns = [str(c).strip() for c in df.columns]
+
+    # Drop known non-sample column(s) if present
+    if "Length" in df.columns:
+        print("NOTE: dropping non-sample column(s): Length")
+        df = df.drop(columns=["Length"])
+
     gene_col = df.columns[0]
     return df.set_index(gene_col)
 
@@ -54,15 +62,19 @@ def main() -> None:
 
     counts = load_counts(Path(args.counts))
     meta = pd.read_csv(args.metadata)
+    # Normalize metadata text fields (matches stripped count column names)
+    for col in ["sample", "condition", "genotype"]:
+        if col in meta.columns:
+            meta[col] = meta[col].astype(str).str.strip()
 
     if "genotype" not in meta.columns:
         raise ValueError("metadata.csv must include a 'genotype' column. Re-run 01_qc_and_metadata.py.")
 
     meta = meta[meta["sample"].isin(counts.columns)].copy()
     meta = meta[meta["condition"] == args.condition].copy()
-
-    wt = meta.loc[meta["genotype"].astype(str).str.upper() == "WT", "sample"].tolist()
-    sh = meta.loc[meta["genotype"].astype(str).str.lower().str.contains("shank3"), "sample"].tolist()
+    geno = meta["genotype"].astype(str).str.lower().str.strip()
+    wt = meta.loc[geno == "wt", "sample"].tolist()
+    sh = meta.loc[(geno.str.contains("shank3")) | (geno == "s3"), "sample"].tolist()
 
     if len(wt) == 0 or len(sh) == 0:
         raise ValueError(
