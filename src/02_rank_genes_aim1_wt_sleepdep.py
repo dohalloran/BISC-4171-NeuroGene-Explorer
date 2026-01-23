@@ -34,6 +34,62 @@ import matplotlib.pyplot as plt
 from scipy.stats import ttest_ind
 from statsmodels.stats.multitest import multipletests
 
+import pandas as pd
+
+def clean_name(x):
+    # strip whitespace, then strip surrounding quotes/apostrophes
+    s = str(x).strip()
+    return s.strip("'").strip('"').strip()
+
+def load_counts_and_metadata(
+    counts_path="data/GSE113754_RNASeq_S3_WT_SD5_HC5_Counts.txt.gz",
+    metadata_path="results/metadata.csv",
+    n_prefix_cols=2,   # counts files often start with GeneID, Length
+    sample_col="sample"
+):
+    # --- read counts ---
+    counts_df, meta_df = load_counts_and_metadata()
+    counts.columns = [clean_name(c) for c in counts.columns]
+
+    # --- read metadata ---
+    counts_df, meta_df = load_counts_and_metadata()
+    for col in [sample_col, "condition", "genotype"]:
+        if col in meta.columns:
+            meta[col] = meta[col].astype(str).map(clean_name)
+
+    # --- sanity checks ---
+    count_samples = set(counts.columns[n_prefix_cols:])
+    meta_samples  = set(meta[sample_col])
+
+    in_meta_not_counts = sorted(meta_samples - count_samples)
+    in_counts_not_meta = sorted(count_samples - meta_samples)
+
+    print("Example cleaned count columns:", counts.columns[:12].tolist())
+    print("In metadata but not counts:", in_meta_not_counts[:20])
+    print("In counts but not metadata:", in_counts_not_meta[:20])
+
+    # --- align (subset + reorder) ---
+    common = [s for s in meta[sample_col].tolist() if s in count_samples]
+    if len(common) == 0:
+        raise ValueError("No overlapping sample names between counts and metadata after cleaning.")
+
+    # keep only samples present in metadata, ordered to match metadata
+    counts_aligned = counts.iloc[:, :n_prefix_cols].copy()
+    counts_aligned = pd.concat([counts_aligned, counts[common]], axis=1)
+
+    # optionally filter metadata to only samples actually in counts
+    meta_aligned = meta[meta[sample_col].isin(common)].copy()
+
+    return counts_aligned, meta_aligned
+
+
+# ---- in your script, right where you currently load files ----
+counts_df, meta_df = load_counts_and_metadata()
+
+# from here on, use counts_df + meta_df for Aim 1 filtering/ranking
+# e.g., select WT samples, SD5 vs HC5, etc.
+
+
 def load_counts(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, sep="\t", comment="#")
     gene_col = df.columns[0]
